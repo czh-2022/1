@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+python-dotenv
+openai
+pydantic
+streamlit
+httpx
+pandas
+sqlalchemy
+loguru
+python-multipart
+xlrd
+openpyxl
+tqdm
+tenacity
+requests
