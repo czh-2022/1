@@ -48,16 +48,23 @@ copy .env.example .env
 
 ### 3. 运行系统
 
-双击运行 `run_app.bat` 脚本（Windows），或手动运行：
+**推荐方式 (Python 脚本)**:
+```bash
+python run.py
+```
 
+或者使用批处理脚本 (Windows):
+双击运行 `run_app.bat`
+
+**手动方式**:
 **终端 1 (后端)**:
 ```bash
-py -m uvicorn main:app --reload
+python -m uvicorn main:app --reload --port 8002
 ```
 
 **终端 2 (前端)**:
 ```bash
-py -m streamlit run app.py
+python -m streamlit run app.py --server.port 8501
 ```
 
 访问前端页面：`http://localhost:8501`

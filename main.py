@@ -6,24 +6,24 @@ import uuid
 import time
 import sys
 
-# Import new modules
+# 导入新模块
 from database import engine, SessionLocal, get_db
 from models_db import Base, Profile, ChatLog, KnowledgeBaseFile
 from models import UserProfile, ChatRequest, DailyNutritionTarget
 from utils import calculate_nutrition_needs
 from llm_service import LLMService
 
-# Initialize DB tables
+# 初始化数据库表
 Base.metadata.create_all(bind=engine)
 
-# Configure Logger
+# 配置日志记录器
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 logger.add("logs/app.log", rotation="10 MB", level="DEBUG")
 
 app = FastAPI(title="Smart Elderly Nutritionist API", version="2.0")
 
-# Configure CORS
+# 配置 CORS (跨域资源共享)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,7 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Middleware for Logging
+# 日志中间件
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     request_id = str(uuid.uuid4())
@@ -45,7 +45,7 @@ async def log_requests(request: Request, call_next):
     logger.info(f"Request {request_id} completed: {response.status_code} in {process_time:.4f}s")
     return response
 
-# Dependency
+# 数据库依赖
 def get_db_session():
     db = SessionLocal()
     try:
@@ -59,13 +59,13 @@ llm = LLMService()
 def read_root():
     return {"message": "Welcome to Smart Elderly Nutritionist API v2.0 (DB Enabled)"}
 
-# --- Profile Management ---
+# --- 画像管理 ---
 
 @app.post("/profile")
 async def create_profile(profile: UserProfile, db: Session = Depends(get_db_session)):
     profile_id = str(uuid.uuid4())
     
-    # Save to DB
+    # 保存到数据库
     db_profile = Profile(
         id=profile_id,
         age=profile.age,
@@ -91,7 +91,7 @@ async def get_profile(profile_id: str, db: Session = Depends(get_db_session)):
     if not db_profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    # Convert DB model back to Pydantic
+    # 将 DB 模型转换回 Pydantic
     return UserProfile(
         age=db_profile.age,
         gender=db_profile.gender,
@@ -103,12 +103,12 @@ async def get_profile(profile_id: str, db: Session = Depends(get_db_session)):
         preferences=db_profile.preferences
     )
 
-# --- Chat & Tools ---
+# --- 聊天与工具 ---
 
 @app.post("/calculate_nutrition")
 async def calculate_nutrition_endpoint(profile: UserProfile):
     """
-    Dify Tool Endpoint: Stateless calculation
+    Dify 工具端点：无状态计算
     """
     targets = calculate_nutrition_needs(profile)
     return {
@@ -119,13 +119,13 @@ async def calculate_nutrition_endpoint(profile: UserProfile):
 @app.post("/chat/{profile_id}")
 async def chat(profile_id: str, request: ChatRequest, db: Session = Depends(get_db_session)):
     """
-    Legacy Chat Endpoint (for Streamlit) - Now with persistence
+    旧版聊天端点 (用于 Streamlit) - 现已支持持久化
     """
     db_profile = db.query(Profile).filter(Profile.id == profile_id).first()
     if not db_profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    # Reconstruct Pydantic model
+    # 重建 Pydantic 模型
     user_profile = UserProfile(
         age=db_profile.age,
         gender=db_profile.gender,
@@ -137,25 +137,25 @@ async def chat(profile_id: str, request: ChatRequest, db: Session = Depends(get_
         preferences=db_profile.preferences
     )
     
-    # Add profile to request manually if missing (for legacy client compatibility)
+    # 如果请求中缺失，手动添加画像 (兼容旧客户端)
     request.user_profile = user_profile
     
     nutrition_targets = calculate_nutrition_needs(user_profile)
     
-    # Log User Message
+    # 记录用户消息
     db.add(ChatLog(profile_id=profile_id, role="user", content=request.message))
     db.commit()
 
-    # Generate Response
+    # 生成回复
     response = llm.get_response(request, str(nutrition_targets.model_dump()))
     
-    # Log Assistant Message
+    # 记录助手消息
     db.add(ChatLog(profile_id=profile_id, role="assistant", content=response))
     db.commit()
     
     return {"reply": response}
 
-# --- Knowledge Base Management ---
+# --- 知识库管理 ---
 
 @app.get("/knowledge/status")
 async def kb_status(db: Session = Depends(get_db_session)):
@@ -165,10 +165,10 @@ async def kb_status(db: Session = Depends(get_db_session)):
 @app.post("/knowledge/trigger_sync")
 async def trigger_kb_sync():
     """
-    Trigger the background RAG pipeline to sync local docs to Dify
+    触发后台 RAG 管道以同步本地文档到 Dify
     """
     from rag_pipeline.dify_sync import run_sync_process
-    # In a real app, use BackgroundTasks
+    # 在真实应用中，请使用 BackgroundTasks
     try:
         result = run_sync_process()
         return {"status": "success", "details": result}
@@ -179,7 +179,7 @@ async def trigger_kb_sync():
 @app.get("/dify_tool.json")
 def get_dify_tool_schema():
     """
-    OpenAPI Schema for Dify Tool
+    Dify 工具的 OpenAPI Schema
     """
     openapi_schema = app.openapi()
     paths = {
@@ -201,3 +201,23 @@ def get_dify_tool_schema():
         "paths": paths,
         "components": {"schemas": schemas}
     }
+
+# --- System Management ---
+import os
+import signal
+import threading
+
+@app.post("/system/shutdown")
+async def shutdown_app():
+    """
+    Shutdown the server programmatically
+    """
+    logger.info("Received shutdown signal from frontend.")
+    
+    def kill():
+        time.sleep(1)
+        logger.info("Shutting down process...")
+        os.kill(os.getpid(), signal.SIGTERM)
+        
+    threading.Thread(target=kill).start()
+    return {"status": "shutting_down"}

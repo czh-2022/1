@@ -24,7 +24,7 @@ class LLMService:
 
     def _load_markdown_file(self, filename: str) -> str:
         """
-        Helper to read markdown content from knowledge directory.
+        辅助函数：从知识库目录读取 Markdown 内容。
         """
         try:
             path = os.path.join(self.knowledge_base_dir, filename)
@@ -39,17 +39,28 @@ class LLMService:
     def _retrieve_knowledge(self, profile: UserProfile, query: str = "") -> list[str]:
         snippets = []
         
-        # 1. Always load General Elderly Guide
+        # 1. 始终加载通用老年人指南
         general_guide = self._load_markdown_file("guide_general_elderly.md")
         if general_guide:
-            snippets.append(f"【通用老年人膳食指南】\n{general_guide[:1000]}...") # Truncate to avoid context overflow if needed
+            snippets.append(f"【通用老年人膳食指南】\n{general_guide[:1000]}...") # 截断以避免上下文溢出
 
-        # 2. Condition-specific guides
+        # 2. 特定疾病指南
         condition_map = {
             "hypertension": "guide_hypertension.md",
             "diabetes": "guide_diabetes.md",
             "gout": "guide_gout.md",
-            "kidney_disease": "guide_ckd.md"
+            "kidney_disease": "guide_ckd.md",
+            "osteoporosis": "guide_osteoporosis.md",
+            "alzheimers": "guide_alzheimers.md",
+            "cardiovascular": "guide_cardiovascular.md",
+            "constipation": "guide_constipation.md",
+            "sarcopenia": "guide_sarcopenia.md",
+            "anemia": "guide_anemia.md",
+            "dysphagia": "guide_dysphagia.md",
+            "hydration": "guide_hydration.md",
+            "respiratory": "guide_respiratory.md",
+            "digestive": "guide_digestive.md",
+            "immune": "guide_immune.md"
         }
         
         for condition in profile.health_conditions:
@@ -58,26 +69,55 @@ class LLMService:
                 if content:
                     snippets.append(f"【针对{condition}的饮食建议】\n{content}")
 
-        # 3. Query-based injection (Simple Keyword Matching)
+        # 3. 基于查询的注入 (简单关键词匹配)
         query_lower = query.lower()
         
-        # Recipes
+        # 食谱
         if any(k in query_lower for k in ["食谱", "菜单", "吃什么", "早饭", "午饭", "晚饭", "recipe", "menu"]):
             recipes = self._load_markdown_file("guide_recipes.md")
             if recipes:
                 snippets.append(f"【推荐食谱参考】\n{recipes}")
+        
+        # 药物相互作用 (新增)
+        if any(k in query_lower for k in ["药", "吃药", "副作用", "drug", "medicine", "medication"]):
+            drug_guide = self._load_markdown_file("guide_drug_interactions.md")
+            if drug_guide:
+                snippets.append(f"【药物-食物相互作用警示】\n{drug_guide}")
 
-        # Seasonal
+        # 季节/时令
         if any(k in query_lower for k in ["春", "夏", "秋", "冬", "季节", "节气", "season"]):
             seasonal = self._load_markdown_file("guide_seasonal.md")
             if seasonal:
                 snippets.append(f"【四季养生指南】\n{seasonal}")
                 
-        # Drug Interactions
-        if any(k in query_lower for k in ["药", "副作用", "drug", "medicine"]):
-            drugs = self._load_markdown_file("guide_drug_interactions.md")
-            if drugs:
-                snippets.append(f"【药物食物相互作用警示】\n{drugs}")
+        # 4. 基于症状/疾病的注入 (增强意图识别)
+        # 疾病关键词映射
+        disease_keywords = {
+            "hypertension": ["高血压", "血压高", "头晕", "hypertension", "blood pressure"],
+            "diabetes": ["糖尿病", "血糖", "消渴", "多饮", "diabetes", "blood sugar"],
+            "gout": ["痛风", "尿酸", "关节痛", "海鲜", "gout", "uric acid"],
+            "kidney_disease": ["肾病", "肌酐", "蛋白尿", "水肿", "浮肿", "kidney", "renal"],
+            "osteoporosis": ["骨质疏松", "骨折", "缺钙", "腰酸背痛", "osteoporosis", "bone"],
+            "alzheimers": ["老年痴呆", "记忆力", "阿尔茨海默", "忘事", "alzheimer", "dementia", "mind diet"],
+            "cardiovascular": ["心脏病", "冠心病", "心绞痛", "血脂", "动脉硬化", "cardiovascular", "heart"],
+            "constipation": ["便秘", "大便干", "排便困难", "通便", "constipation", "fiber"],
+            "sarcopenia": ["肌少症", "肌肉萎缩", "没力气", "摔倒", "sarcopenia", "muscle"],
+            "anemia": ["贫血", "头晕", "眼花", "面色苍白", "anemia", "iron"],
+            "dysphagia": ["吞咽困难", "呛咳", "吃不下", "噎住", "dysphagia", "swallow"],
+            "hydration": ["脱水", "口渴", "尿黄", "喝水", "hydration", "water"],
+            "respiratory": ["气喘", "咳嗽", "慢阻肺", "哮喘", "呼吸困难", "copd", "asthma"],
+            "digestive": ["胃痛", "反酸", "胃胀", "不消化", "胃炎", "gastritis", "stomach"],
+            "immune": ["感冒", "免疫力", "体质差", "术后", "恢复期", "immune", "flu"]
+        }
+        
+        for condition, keywords in disease_keywords.items():
+            # 检查查询中是否存在关键词
+            if any(k in query_lower for k in keywords):
+                # 检查是否尚未通过画像加载
+                if condition not in profile.health_conditions and condition in condition_map:
+                    content = self._load_markdown_file(condition_map[condition])
+                    if content:
+                        snippets.append(f"【根据您的描述为您补充：针对{condition}的饮食建议】\n{content}")
 
         return snippets
 
@@ -91,22 +131,22 @@ class LLMService:
         try:
             profile_str = request.user_profile.model_dump_json(indent=2)
             
-            # Enhanced retrieval: Now passes user message for keyword matching
+            # 增强检索：现在传递用户消息以进行关键词匹配
             knowledge_snippets = self._retrieve_knowledge(request.user_profile, request.message)
             
             context = generate_nutrition_context(profile_str, nutrition_targets, knowledge_snippets)
             
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": context}, # Put context in user message to avoid system prompt overuse issues with some models
+                {"role": "user", "content": context}, # 将上下文放入用户消息中，以避免某些模型过度使用系统提示
                 {"role": "user", "content": request.message}
             ]
             
-            # Add history
+            # 添加历史记录
             for msg in request.history:
                 messages.append(msg)
             
-            # Add current user message
+            # 添加当前用户消息
             messages.append({"role": "user", "content": request.message})
 
             response = self.client.chat.completions.create(
